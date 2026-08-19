@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# IDE and Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment variables
+.env
+.env.local
+*.local
+
+# Project-specific local outputs
+audit_results.json
+bottleneck_experiment_results.json
+*.log
+
+# Internal diagnostic/audit reports (kept local only)
+FINAL_RAG_QUALITY_AUDIT.md
+PDF_EXTRACTION_DIAGNOSTIC_REPORT.md
+RAG_BOTTLENECK_EXPERIMENT_REPORT.md
+RAG_FAILURE_ATTRIBUTION_REPORT.md
+RAG_GROUNDING_DIAGNOSTIC_REPORT.md
+RAG_PRODUCTION_READINESS_FINAL.md
+RAG_PRODUCTION_READINESS_REPORT.md
+
+# Model caches and artifacts
+*.bin
+*.safetensors
+faiss_index/
+model_cache/
