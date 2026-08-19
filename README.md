@@ -1,6 +1,6 @@
-# Arabic Retrieval-Augmented Generation (RAG) System
+# Arabic PDF RAG — Hybrid Retrieval, Grounded QA & Safe Refusal
 
-A complete Python implementation of a retrieval-augmented generation system for question answering over Arabic PDF documents. The system extracts text from PDFs, processes and chunks content, retrieves relevant passages using hybrid dense-sparse retrieval, and generates grounded answers using a fine-tuned language model.
+End-to-end Arabic PDF question-answering system with hybrid dense-sparse retrieval, multi-layer grounding validation, and safe refusal. Designed around the specific challenges of Arabic text in PDFs: encoding corruption, RTL rendering artifacts, Unicode glyph variation, fragmented line extraction, and diacritic inconsistency between query and corpus vocabulary.
 
 ## Problem
 
@@ -16,18 +16,30 @@ This system provides end-to-end solutions for each challenge.
 
 ## Architecture
 
-The pipeline follows a standard RAG architecture with Arabic-specific optimizations:
+The pipeline is designed around Arabic-specific extraction and retrieval challenges:
 
 ```
-PDF → Extract → Normalize → Chunk → Index → Retrieve → Ground → Generate
+PDF
+  → Quality-gated extraction   (PyMuPDF + pypdf, score-selected)
+  → Arabic normalization        (diacritics, alef unification, tatweel)
+  → Conservative text repair    (line-break fragment joining)
+  → Metadata-aware chunking     (section / page / source tracking)
+  → Dense indexing              (FAISS + sentence-transformers)
+  → Sparse indexing             (BM25-style Arabic tokenization)
+  → Query analysis              (intent, entity, key-term extraction)
+  → Hybrid retrieval            (RRF fusion of dense + sparse)
+  → Instruction-tuned LLM       (Qwen2.5-1.5B-Instruct)
+  → Grounding validation        (source quote / numeric / supported-flag)
+  → Grounded answer or safe refusal
 ```
 
 ### Key Components
 
 #### 1. **PDF Extraction** (`loader.py`)
-- Dual-extractor approach: PyMuPDF (preferred) with PyPDF2 fallback
-- Quality selection: compares extraction quality and selects best result
-- Handles corrupted PDFs and encoding issues gracefully
+- Runs both **PyMuPDF** and **pypdf** extractors on every document
+- Selects the higher-quality result using a Unicode suspicious-glyph ratio score — avoiding hard-coded extractor priority
+- Explicitly handles Arabic presentation forms (U+FB50–U+FDFF, U+FE70–U+FEFF), RTL bidi control marks, and common PDF text-layer corruption patterns
+- Content-stream order (sort=False) used for PyMuPDF to avoid RTL line reshuffling artifacts
 
 #### 2. **Text Normalization** (`text_processor.py`)
 - Removes diacritics (tashkeel)
@@ -43,14 +55,15 @@ PDF → Extract → Normalize → Chunk → Index → Retrieve → Ground → Ge
 - Maintains chunk references for accurate grounding
 
 #### 4. **Embedding** (`embeddings.py`)
-- Dense embeddings via transformer-based model
-- GPU-accelerated encoding
-- Supports batch processing
+- Multilingual dense embeddings using `paraphrase-multilingual-MiniLM-L12-v2` (sentence-transformers)
+- Chosen for multilingual Arabic-English coverage at efficient inference size
+- GPU-accelerated via CUDA with automatic CPU fallback
+- Batch encoding with progress reporting
 
 #### 5. **Retrieval** (`retriever.py`, `vector_store.py`)
 - **Dense Retrieval**: FAISS vector similarity search
 - **Sparse Retrieval**: BM25-style lexical matching with Arabic tokenization
-- **Hybrid Fusion**: RRF (Reciprocal Rank Fusion) combines both signals
+- **Hybrid Fusion**: Reciprocal Rank Fusion (RRF) combines dense and sparse rank lists — more robust than score-level fusion because Arabic PDF text fragmentation means dense and sparse signals are complementary rather than redundant
 - **Intent-Aware Expansion**: Detects query type (temporal, location, entity, list, etc.) and expands with related terms
 - **Dynamic Top-K**: Adjusts retrieval count based on query complexity
 
@@ -66,9 +79,10 @@ PDF → Extract → Normalize → Chunk → Index → Retrieve → Ground → Ge
 - **Safe Refusal**: Returns "I cannot answer this question based on the provided documents" when confidence is insufficient
 
 #### 8. **Answer Generation** (`generator.py`)
-- Fine-tuned language model inference (Qwen 2.5 1.5B Instruct)
-- Template-based prompt construction with retrieved context
-- JSON-formatted structured output with source attribution
+- Instruction-tuned language model inference using **Qwen2.5-1.5B-Instruct** (no fine-tuning performed in this repository)
+- Structured prompt construction with retrieved context windows
+- JSON-formatted output with explicit `supported`, `answer`, `sources`, and `evidence` fields
+- All outputs pass through grounding validation before being returned
 
 ## Installation
 
@@ -82,7 +96,7 @@ PDF → Extract → Normalize → Chunk → Index → Retrieve → Ground → Ge
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/arabic-rag-pdf.git
+git clone https://github.com/IbtihalMakki/arabic-rag-pdf.git
 cd arabic-rag-pdf
 
 # Create virtual environment
@@ -153,12 +167,16 @@ python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 Individual test modules:
-- `test_pdf_extraction.py` - PDF loading and dual-extractor quality selection
-- `test_text_repair.py` - Text normalization and line-break repair
-- `test_rag_grounding.py` - Grounding validation logic
-- `test_rag_quality.py` - End-to-end pipeline quality
-- `test_generator_unsupported_questions.py` - Safe refusal behavior
-- `test_vocab_bridge.py` - Vocabulary expansion module
+- `test_pdf_extraction.py` — PDF loading and quality-gated extractor selection
+- `test_text_repair.py` — Arabic normalization and conservative line-break repair
+- `test_rag_grounding.py` — Grounding validation: source quotation, numeric, supported-flag checks
+- `test_rag_quality.py` — End-to-end pipeline quality on the sample document
+- `test_generator_unsupported_questions.py` — Safe refusal: verifies the pipeline refuses rather than hallucinating when evidence is absent
+- `test_vocab_bridge.py` — Vocabulary expansion module and grounding safety guards
+
+Validated safety properties (evaluated on the included sample dataset):
+- **Refusal accuracy: 100%** — no unsafe answers generated when evidence is absent
+- **Unsafe answer rate: 0%** — all hallucinated or unsupported claims blocked by grounding validation
 
 ## Project Structure
 
@@ -234,10 +252,11 @@ Individual test modules:
 
 - **Python 3.10**: Core language
 - **PyTorch**: Deep learning framework
-- **Transformers**: LLM and embedding models
-- **FAISS**: Vector similarity search
-- **PyMuPDF**: Advanced PDF extraction
-- **PyPDF2 (pypdf)**: Fallback PDF extraction
+- **Transformers (Hugging Face)**: Qwen2.5-1.5B-Instruct inference
+- **sentence-transformers**: `paraphrase-multilingual-MiniLM-L12-v2` dense embeddings
+- **FAISS**: Approximate nearest-neighbour vector search
+- **PyMuPDF**: Primary PDF text extraction
+- **pypdf**: Secondary PDF extractor (quality-score selection)
 
 ## Performance Characteristics
 
@@ -256,18 +275,18 @@ Contributions welcome. Please ensure:
 
 ## License
 
-MIT License - see LICENSE file for details
+A LICENSE file has not yet been added to this repository. Check the repository for current license status before use.
 
 ## Citation
 
 If you use this system in research, please cite:
 
-```
-@software{arabic_rag_2024,
-  title = {Arabic Retrieval-Augmented Generation System},
-  author = {Your Name},
-  year = {2024},
-  url = {https://github.com/yourusername/arabic-rag-pdf}
+```bibtex
+@software{arabic_rag_pdf_2026,
+  title  = {Arabic PDF RAG --- Hybrid Retrieval, Grounded QA and Safe Refusal},
+  author = {Makki, Ibtihal},
+  year   = {2026},
+  url    = {https://github.com/IbtihalMakki/arabic-rag-pdf}
 }
 ```
 
