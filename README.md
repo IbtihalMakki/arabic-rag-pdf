@@ -2,10 +2,14 @@
 
 End-to-end Arabic PDF question-answering system with hybrid dense-sparse retrieval, multi-layer grounding validation, and safe refusal. Designed around the specific challenges of Arabic text in PDFs: encoding corruption, RTL rendering artifacts, Unicode glyph variation, fragmented line extraction, and diacritic inconsistency between query and corpus vocabulary.
 
+## Why This Project Matters
+
+Arabic RAG systems can fail before generation begins — malformed PDF text, RTL artifacts, vocabulary mismatch, and weak evidence retrieval can all propagate into hallucinated answers. This project treats extraction, retrieval, generation, and grounding as separate engineering layers and validates each layer independently.
+
 ## Problem
 
 Answering factual questions about content in Arabic documents requires:
-- Robust PDF text extraction handling OCR artifacts and encoding issues
+- Robust PDF text extraction handling encoding issues, Unicode mapping defects, RTL artifacts, and fragmented text layers.
 - Proper normalization of Arabic text (handling diacritics, various alef forms, character variants)
 - Effective chunking that preserves document structure and references
 - Intelligent retrieval combining dense semantic search with sparse lexical matching
@@ -32,7 +36,17 @@ PDF
   → Grounding validation        (source quote / numeric / supported-flag)
   → Grounded answer or safe refusal
 ```
+## Engineering Highlights
 
+- Dual PDF extraction with quality-based source selection
+- Arabic Unicode normalization and conservative text repair
+- Hybrid dense + sparse retrieval with Reciprocal Rank Fusion
+- Intent-aware query expansion and dynamic top-k retrieval
+- Evidence-first answer validation with safe refusal
+- Regression suite with 44 automated tests
+- Modular architecture allowing independent replacement of retrieval,
+  embedding, and generation components
+  
 ### Key Components
 
 #### 1. **PDF Extraction** (`loader.py`)
@@ -49,7 +63,7 @@ PDF
 - Preserves source integrity for grounding
 
 #### 3. **Chunking** (`chunker.py`)
-- Semantic chunking with metadata preservation
+- Structure-aware chunking with metadata preservation
 - Tracks section, page, and document source for each chunk
 - Filters out reference sections (المصادر) and URLs
 - Maintains chunk references for accurate grounding
@@ -75,7 +89,7 @@ PDF
 - **Source Quotation Validation**: Ensures generated quotes appear verbatim in source material
 - **Numeric Claim Validation**: Checks that factual numbers in answers exist in evidence
 - **Supported Flag Check**: Verifies answer claim is marked as supported by evidence
-- **Hallucination Detection**: Catches model-generated claims not in source and rejects them
+- **Hallucination Detection**: Claim-level grounding checks reject answers whose cited evidence or factual claims cannot be validated against retrieved source text.
 - **Safe Refusal**: Returns "I cannot answer this question based on the provided documents" when confidence is insufficient
 
 #### 8. **Answer Generation** (`generator.py`)
@@ -258,12 +272,12 @@ Validated safety properties (evaluated on the included sample dataset):
 - **PyMuPDF**: Primary PDF text extraction
 - **pypdf**: Secondary PDF extractor (quality-score selection)
 
-## Performance Characteristics
+## Runtime Characteristics
 
-- Embedding generation: GPU-accelerated (CUDA) or CPU fallback
-- FAISS retrieval: Sub-millisecond similarity search
-- Model inference: Optimized for 1.5B parameter models
-- Memory footprint: ~2GB for embeddings + model weights
+- GPU acceleration supported through PyTorch/CUDA.
+- CPU fallback available.
+- FAISS provides efficient vector similarity search.
+- Embeddings and LLM weights are loaded on demand.
 
 ## Contributing
 
